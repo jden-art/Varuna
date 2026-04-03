@@ -14,7 +14,7 @@
 
 ---
 
-## ▶️ Demo Video — Click to Watch
+## ▶️ PROJECT OPERATION VIDEO — Click on image to Watch
 
 [![Watch the VARUNA Demo](https://img.youtube.com/vi/_P6k8nGx6x4/maxresdefault.jpg)](https://youtu.be/_P6k8nGx6x4)
 
