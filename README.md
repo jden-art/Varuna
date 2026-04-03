@@ -361,7 +361,7 @@ sequenceDiagram
 
 ## 🖥️ Web Dashboard
 
-Single self-contained file — `varuna_dashboard_v32.html`. No backend required.
+Single self-contained file — `varuna_dashboard_v32.html`. 
 
 | Panel | Contents |
 |---|---|
