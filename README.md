@@ -50,10 +50,7 @@ flowchart TD
     C --> E[(🔥 Firebase RTDB)]
     E --> F[📊 Dashboard]
 ```
-Sensors → ESP32-S3 (Flood Brain) → ESP32-C3 (Comms Bridge) → Firebase RTDB → Dashboard
-                                         ↕
-                                     SIM800L GSM
-                                   (GPRS + SMS alerts)
+
 
 Three layers, one purpose: **detect flooding early and report it reliably.**
 
