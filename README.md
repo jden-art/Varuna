@@ -42,6 +42,13 @@
 
 ## 🗺 System Overview
 
+flowchart TD
+    A[🔬 Sensors] --> B[🧠 ESP32-S3\nFlood Brain]
+    B --> C[📡 ESP32-C3\nComms Bridge]
+    B <--> D[📶 SIM800L GSM\nGPRS + SMS Alerts]
+    C --> E[(🔥 Firebase RTDB)]
+    E --> F[📊 Dashboard]
+    
 ```
 Sensors → ESP32-S3 (Flood Brain) → ESP32-C3 (Comms Bridge) → Firebase RTDB → Dashboard
                                          ↕
