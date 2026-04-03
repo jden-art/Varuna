@@ -1,500 +1,533 @@
-# VARUNA — Autonomous Flood Monitoring Buoy
+# 🌊 VARUNA — Autonomous Flood Monitoring Buoy
 
+> **V**ertical **A**nchor **R**eal-time **U**nderwater & **N**atural-hazard **A**ssessment
 
-VARUNA is an autonomous, tethered flood-monitoring buoy designed for real-world deployment in flood-prone river basins, canals, and urban drainage systems. The system provides continuous water-level sensing, on-device flood classification, dynamic cloud telemetry, and automated email alerts — all from a self-contained two-microcontroller embedded platform.
+[![Status](https://img.shields.io/badge/status-active-22c55e?style=flat-square)](.) [![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%2B%20C3-3b82f6?style=flat-square)](.) [![Cloud](https://img.shields.io/badge/cloud-Firebase%20RTDB-f59e0b?style=flat-square)](.) [![Version](https://img.shields.io/badge/firmware-v3.2%20%2F%20v2.0-64748b?style=flat-square)](.)
 
----
-
-## Table of Contents
-
-- [System Architecture](#system-architecture)
-- [Hardware Components](#hardware-components)
-- [Two-Microcontroller Design](#two-microcontroller-design)
-  - [ESP32-S3 — Sensor Brain](#esp32-s3--sensor-brain)
-  - [XIAO ESP32-C3 — Communication Bridge](#xiao-esp32-c3--communication-bridge)
-- [Inter-MCU Communication](#inter-mcu-communication)
-- [Sensing & Signal Processing](#sensing--signal-processing)
-  - [Tether-Angle Water Height Model](#tether-angle-water-height-model)
-  - [Wave Filter — 2-Second Trimmed Mean](#wave-filter--2-second-trimmed-mean)
-  - [Sensor Fusion — Complementary Filter](#sensor-fusion--complementary-filter)
-  - [Gravity Auto-Zero Calibration](#gravity-auto-zero-calibration)
-- [Flood Detection Engine](#flood-detection-engine)
-  - [Operating Modes](#operating-modes)
-  - [Alert Levels and Zones](#alert-levels-and-zones)
-  - [Dynamic Firebase Push Rate](#dynamic-firebase-push-rate)
-- [Cloud Integration — Firebase](#cloud-integration--firebase)
-  - [Data Paths](#data-paths)
-  - [Wireless Console](#wireless-console)
-- [Web Dashboard](#web-dashboard)
-  - [Panels](#panels)
-  - [Alerting System](#alerting-system)
-  - [Analytics & Export](#analytics--export)
-- [C3 Bridge — SD Buffering & OTA](#c3-bridge--sd-buffering--ota)
-- [Calibration Procedure](#calibration-procedure)
-- [Serial Console Commands (S3)](#serial-console-commands-s3)
-- [Diagnostics](#diagnostics)
-- [Pin Reference](#pin-reference)
-- [Firmware Overview](#firmware-overview)
-- [Project Goals & Context](#project-goals--context)
+VARUNA is a **tethered, autonomous flood-monitoring buoy** for real-world deployment in rivers, canals, and urban drainage systems. It senses, classifies, and reports water levels continuously — pushing live telemetry to Firebase and triggering email alerts when flood thresholds are crossed.
 
 ---
 
-## System Architecture
+## 📑 Table of Contents
+
+- [System Overview](#-system-overview)
+- [Architecture Diagram](#-architecture-diagram)
+- [Hardware](#-hardware)
+- [Two-MCU Design](#-two-mcu-design)
+- [Inter-MCU Communication](#-inter-mcu-communication)
+- [Sensing & Signal Processing](#-sensing--signal-processing)
+- [Flood Detection Engine](#-flood-detection-engine)
+- [Firebase Cloud Integration](#-firebase-cloud-integration)
+- [Web Dashboard](#-web-dashboard)
+- [SD Buffering & OTA](#-sd-buffering--ota)
+- [Calibration](#-calibration)
+- [Serial Commands](#-serial-commands)
+- [Diagnostics](#-diagnostics)
+- [Pin Reference](#-pin-reference)
+
+---
+
+## 🗺 System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        VARUNA BUOY                              │
-│                                                                 │
-│   ┌──────────────────────────────────┐                         │
-│   │        ESP32-S3                  │                         │
-│   │     Sensor Brain v3.2            │                         │
-│   │                                  │                         │
-│   │  MPU6050 ──► Sensor Fusion       │                         │
-│   │  BMP280  ──► Pressure Baseline   │                         │
-│   │  GPS     ──► Location Fix        │                         │
-│   │  Battery ──► ADC Monitor         │                         │
-│   │                                  │                         │
-│   │  ┌────────────────────────────┐  │                         │
-│   │  │  Flood Detection Engine    │  │                         │
-│   │  │  4-Mode FSM | Wave Filter  │  │                         │
-│   │  └────────────────────────────┘  │                         │
-│   │                                  │  WiFi / Firebase        │
-│   │  Firebase RTDB ◄────────────────────────────────────────► │
-│   │  (direct push + poll)            │                     Cloud│
-│   │                                  │                         │
-│   │  GPIO 14 (SW-UART TX) ──────────┐│                         │
-│   │  GPIO 43/44 (HW-UART) ◄────────┤│                         │
-│   └──────────────────────────────────┘│                         │
-│                                        │                         │
-│   ┌────────────────────────────────────▼──────────────────────┐ │
-│   │              XIAO ESP32-C3                                │ │
-│   │         Communication Bridge v2.0                         │ │
-│   │                                                           │ │
-│   │  GPIO 10  (SW-UART RX) ◄── CSV data from S3              │ │
-│   │  GPIO 20/21 (HW-UART)  ◄── Commands from S3              │ │
-│   │  GPIO 2/3  ──► S3 BOOT/RESET (OTA programming)           │ │
-│   │  GPIO 4-7  ──► SD Card (SPI)                             │ │
-│   │                                                           │ │
-│   │  SIM800L GSM Module ◄────────────────────────────────►   │ │
-│   │  (GPRS cellular uplink / SMS fallback)                    │ │
-│   │                                                           │ │
-│   │  WiFi (primary) + SIM800L/GPRS (backup data channel)     │ │
-│   └───────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                         Firebase RTDB
-                     (varuna-git-1e145)
-                                │
-                    ┌───────────▼───────────┐
-                    │   Web Dashboard v32   │
-                    │  varuna_dashboard.html│
-                    │                       │
-                    │  Live Telemetry       │
-                    │  Map + GPS            │
-                    │  Analytics & Charts   │
-                    │  Alert Dispatch       │
-                    │  Remote Console       │
-                    └───────────────────────┘
+Sensors → ESP32-S3 (Flood Brain) → ESP32-C3 (Comms Bridge) → Firebase RTDB → Dashboard
+                                         ↕
+                                     SIM800L GSM
+                                   (GPRS + SMS alerts)
+```
+
+Three layers, one purpose: **detect flooding early and report it reliably.**
+
+| Layer | Component | Role |
+|---|---|---|
+| 🧠 Sensing | ESP32-S3 | All sensor fusion, flood classification, Firebase push |
+| 📡 Comms | XIAO ESP32-C3 + SIM800L | Data relay, SD buffering, OTA, cellular uplink |
+| ☁️ Cloud | Firebase RTDB | Telemetry store, command channel |
+| 🖥️ Dashboard | `varuna_dashboard_v32.html` | Live monitoring, alerts, analytics, remote console |
+
+---
+
+## 🔷 Architecture Diagram
+
+```mermaid
+flowchart TD
+    subgraph BUOY["🔵 VARUNA Buoy"]
+        subgraph S3["ESP32-S3 · Sensor Brain v3.2"]
+            MPU["📐 MPU6050\nIMU · 100 Hz fusion"]
+            BMP["🌡️ BMP280\nPressure + Temp"]
+            GPS["🛰️ GPS Module\nNMEA GGA/RMC"]
+            BAT["🔋 Battery ADC\n16-sample avg"]
+            FUSION["⚙️ Complementary Filter\nα = 0.98 · 100 Hz"]
+            WAVE["🌊 Wave Filter\n200 samples · 2s window\n10% trimmed mean"]
+            FSM["🚦 Flood FSM\n4 modes · persistence debounce"]
+            FB_S3["☁️ Firebase Push\nDynamic rate: 2s – 2min"]
+            WCMD["📟 Wireless Console\nPoll every 3s"]
+        end
+
+        subgraph C3["XIAO ESP32-C3 · Comms Bridge v2.0"]
+            SIM["📶 SIM800L\nGSM/GPRS + SMS"]
+            SD["💾 SD Card\nOffline buffer ≤10k rows"]
+            OTA["🔧 OTA Programmer\nSLIP bootloader"]
+            FB_C3["☁️ Firebase Bridge\nCSV → JSON push"]
+        end
+
+        MPU --> FUSION
+        BMP --> FSM
+        GPS --> FSM
+        BAT --> FB_S3
+        FUSION --> WAVE
+        WAVE --> FSM
+        FSM --> FB_S3
+        FSM --> WCMD
+
+        S3 -- "GPIO 14\nSW-UART 9600\nCSV data" --> C3
+        S3 -- "GPIO 43/44\nHW-UART 9600\nCommands" --> C3
+        C3 -- "Commands\n$CFG $PING $DIAG" --> S3
+
+        SIM --> FB_C3
+        SD --> FB_C3
+    end
+
+    FB_S3 --> RTDB[("🔥 Firebase RTDB\nvaruna-git-1e145")]
+    FB_C3 --> RTDB
+    RTDB --> DASH["🖥️ Web Dashboard v32\nLive · Map · Alerts · Console"]
+    DASH -- "Remote commands\nconsole/command" --> RTDB
+    RTDB -- "Poll\nconsole/response" --> WCMD
 ```
 
 ---
 
-## Hardware Components
+## 🔩 Hardware
 
-| Component | Role | Interface |
-|---|---|---|
-| ESP32-S3 | Primary sensor processor & flood intelligence | — |
-| XIAO ESP32-C3 | Communication bridge, SD buffering, OTA programmer | — |
-| MPU6050 | 6-axis IMU (accelerometer + gyroscope) | I2C Bus 0 (GPIO 8/9) |
-| BMP280 | Barometric pressure + temperature | I2C Bus 1 (GPIO 4/5) |
-| GPS Module | NMEA position fix (GGA + RMC) | UART (GPIO 6/7) |
-| SIM800L | GSM/GPRS cellular module | Via C3 |
-| SD Card | Offline CSV buffer | SPI (C3 GPIO 4-7) |
-| Battery | Li-Ion power source | ADC (S3 GPIO 2, ×2 divider) |
-
----
-
-## Two-Microcontroller Design
-
-VARUNA separates concerns cleanly across two microcontrollers:
-
-### ESP32-S3 — Sensor Brain
-
-The S3 is responsible for **everything sensor-related and all flood intelligence**. It runs continuously at 100 Hz sensor fusion, produces wave-filtered water level estimates every 2 seconds, classifies the buoy's flood mode, computes alert levels, and pushes data directly to Firebase Realtime Database over WiFi. It also polls Firebase for remote console commands and responds to them without any C3 involvement.
-
-Key responsibilities:
-- MPU6050 sensor fusion (complementary filter, α = 0.98, 100 Hz)
-- BMP280 pressure monitoring and depth estimation
-- GPS NMEA parsing (GGA + RMC sentences, checksum verified)
-- 2-second wave-filtered trimmed mean water height
-- 4-mode flood state machine with persistence debouncing
-- Dynamic Firebase push rate (2s to 2 min, based on water level %)
-- NTP-synced software RTC (IST, UTC+5:30)
-- H_max persistence in NVS (survives power cycles)
-- Direct Firebase REST PUT/GET (WiFiClientSecure)
-- Hourly IP/RSSI push for dashboard map centering
-
-### XIAO ESP32-C3 — Communication Bridge
-
-The C3 is a **dumb pipe**. It never interprets sensor data — it only moves it. Its primary jobs are receiving the CSV data stream from the S3, forwarding it to Firebase, buffering to SD when offline, and programming the S3 over UART when an OTA update is available. It also interfaces with the **SIM800L GSM module** for cellular connectivity and SMS capabilities as a backup communication channel.
-
-Key responsibilities:
-- Software serial receive from S3 GPIO 14 (bit-bang, interrupt-driven, 9600 baud)
-- CSV→JSON conversion and Firebase push
-- SD card buffering (up to 10,000 lines) when WiFi/GPRS unavailable
-- SD flush in batches of 10 lines when connectivity is restored
-- Firebase command polling and forwarding to S3 via hardware serial
-- SIM800L GSM/GPRS management (cellular uplink, SMS alerts)
-- OTA firmware programming of S3 via SLIP bootloader protocol
-- S3 BOOT/RESET pin control (GPIO 2/3) for bootloader entry
-- $PING ↔ $PONG health check with S3
+| # | Component | Interface | Notes |
+|---|---|---|---|
+| 1 | **ESP32-S3** | — | Sensor brain, WiFi to Firebase |
+| 2 | **XIAO ESP32-C3** | — | Comms bridge, OTA programmer |
+| 3 | **MPU6050** | I²C Bus 0 · GPIO 8/9 | ±2g accel, ±250°/s gyro, 200 Hz, DLPF 44 Hz |
+| 4 | **BMP280** | I²C Bus 1 · GPIO 4/5 | Pressure ×16 oversample, filter ×16 |
+| 5 | **GPS Module** | UART1 · GPIO 6/7 | GGA + RMC, checksum verified |
+| 6 | **SIM800L** | Via C3 | GSM/GPRS uplink + SMS alerts |
+| 7 | **SD Card** | SPI · C3 GPIO 4–7 | Offline CSV buffer |
+| 8 | **Li-Ion Battery** | ADC · S3 GPIO 2 | ×2 voltage divider, 16-sample avg |
 
 ---
 
-## Inter-MCU Communication
+## 🧠 Two-MCU Design
 
-Two physical channels exist between the S3 and C3:
+### ESP32-S3 — The Brain
 
-**Channel 1 — Data (unidirectional, S3 → C3)**
-- S3 GPIO 14 → C3 GPIO 10
-- Software UART, 9600 baud, bit-bang on both ends
-- Carries 39-field CSV sensor data rows
-- Also carries `$CSV,...` prefixed debug rows and `$DIAG,...` diagnostic frames
+Runs all sensing and intelligence. The C3 **never** sees or interprets sensor data.
 
-**Channel 2 — Commands (bidirectional, S3 ↔ C3)**
-- S3 GPIO 43 (TX) / GPIO 44 (RX) ↔ C3 GPIO 21 (RX) / GPIO 20 (TX)
-- Hardware UART, 9600 baud
-- Carries structured `$`-prefixed protocol messages:
+- ✅ MPU6050 + BMP280 + GPS + Battery sensing
+- ✅ 100 Hz complementary filter sensor fusion
+- ✅ 2-second wave-filtered water height (trimmed mean)
+- ✅ 4-mode flood state machine with persistence debounce
+- ✅ Dynamic Firebase push rate (2 s → 2 min)
+- ✅ NTP-synced software RTC (IST, UTC+5:30)
+- ✅ H_max persisted in NVS (survives reboots)
+- ✅ Direct Firebase REST `PUT` / `GET` over TLS
+- ✅ Wireless console via Firebase polling (every 3 s)
 
-| Message | Direction | Meaning |
+### XIAO ESP32-C3 — The Pipe
+
+A dumb relay. Moves data, doesn't think about it.
+
+- ✅ Bit-bang SW-UART RX from S3 GPIO 14 (interrupt-driven)
+- ✅ CSV → JSON conversion and Firebase push
+- ✅ SD card offline buffer (≤ 10,000 rows)
+- ✅ Batch flush when connectivity restores (10 rows / 2 s)
+- ✅ SIM800L GSM/GPRS management + SMS
+- ✅ Firebase command polling → forward to S3
+- ✅ OTA firmware programming of S3 via SLIP bootloader
+- ✅ `$PING` ↔ `$PONG` health check with S3
+
+---
+
+## 📡 Inter-MCU Communication
+
+Two physical wires between S3 and C3:
+
+```mermaid
+sequenceDiagram
+    participant S3 as ESP32-S3
+    participant C3 as XIAO ESP32-C3
+
+    Note over S3,C3: Channel 1 — GPIO 14 → GPIO 10 (SW-UART 9600 baud)
+    S3->>C3: CSV row (39 fields, every push interval)
+    S3->>C3: $DIAG,MPU_ID=1,ACCEL=0.99:1,...
+
+    Note over S3,C3: Channel 2 — GPIO 43/44 ↔ GPIO 20/21 (HW-UART 9600 baud)
+    C3->>S3: $CFG,200.0
+    S3->>C3: $CFG_ACK
+    C3->>S3: $PING
+    S3->>C3: $PONG
+    C3->>S3: $SIMSTAT,18,1,1
+    C3->>S3: $REALTIME,1
+    S3->>C3: $REALTIME_ACK,1
+```
+
+### Command Protocol
+
+| Message | Direction | Purpose |
 |---|---|---|
-| `$CFG,<hMax>` | C3 → S3 | Set H_max from website |
-| `$SETHMAX,<cm>` | C3 → S3 | Set H_max from website |
+| `$CFG,<hMax>` | C3 → S3 | Set tether length / H_max |
+| `$SETHMAX,<cm>` | C3 → S3 | Set H_max from dashboard |
 | `$REALTIME,<0\|1>` | C3 → S3 | Toggle real-time push mode |
 | `$DIAGRUN` | C3 → S3 | Request hardware diagnostic |
-| `$PING` / `$PONG` | bidirectional | Health check |
-| `$SIMSTAT,<rssi>,<reg>,<avail>` | C3 → S3 | SIM800L status report |
+| `$PING` / `$PONG` | Both | Health check |
+| `$SIMSTAT,<rssi>,<reg>,<avail>` | C3 → S3 | SIM800L status update |
+| `$CFG_ACK` / `$HMAX_ACK` | S3 → C3 | Config acknowledged |
 | `$DIAG,...` | S3 → C3 | Full diagnostic result frame |
-| `$CSV,...` | S3 → C3 | CSV data frame |
-| `$CFG_ACK` / `$HMAX_ACK` | S3 → C3 | Configuration acknowledgement |
 
 ---
 
-## Sensing & Signal Processing
+## ⚙️ Sensing & Signal Processing
 
-### Tether-Angle Water Height Model
+### 📐 Tether-Angle Water Height Model
 
-VARUNA is a **tethered buoy** — anchored to the river/canal floor at a known tether length. As water rises, the buoy floats upward and the tether angle from vertical increases. The water height is computed from:
+VARUNA is anchored at a known tether length `L`. As water rises, the buoy floats and the tether angle `θ` increases:
 
 ```
 H = L × cos(θ)
 ```
 
-Where:
-- `H` = water height (cm)
-- `L` = tether length / H_max (cm), stored in NVS, configurable from dashboard
-- `θ` = combined tilt angle from vertical (degrees), computed by sensor fusion
+| Symbol | Meaning |
+|---|---|
+| `H` | Water height (cm) |
+| `L` | Tether length = H_max (cm), stored in NVS |
+| `θ` | Combined tilt angle from vertical (degrees) |
 
-When the buoy is submerged (`MODE_SUBMERGED`), depth is estimated from the BMP280 gauge pressure:
+When **submerged**, BMP280 gauge pressure is used instead:
 
 ```
 depth_cm = (gauge_pressure_Pa / (ρ × g)) × 100
-H = L + depth_cm
+H        = L + depth_cm
 ```
-
-### Wave Filter — 2-Second Trimmed Mean
-
-Raw tilt-based height measurements are noisy due to wave action. VARUNA collects **200 instantaneous height samples** at 100 Hz over a 2-second window, then:
-
-1. Sorts the 200 samples in ascending order (insertion sort)
-2. Discards the **bottom 10%** (wave troughs / tether slack)
-3. Discards the **top 10%** (wave crests / spike noise)
-4. Averages the remaining **160 samples**
-
-This produces one stable, wave-filtered water height reading every 2 seconds. All flood classification logic operates on this value.
-
-### Sensor Fusion — Complementary Filter
-
-The MPU6050 gyroscope and accelerometer are fused using a complementary filter at 100 Hz:
-
-```
-filtTiltX = α × (filtTiltX + gyroX_dps × dt) + (1 - α) × accelTiltX
-filtTiltY = α × (filtTiltY + gyroY_dps × dt) + (1 - α) × accelTiltY
-```
-
-Where α = 0.98. The gyroscope dominates short-term dynamics (high frequency) while the accelerometer corrects long-term drift (low frequency).
-
-Combined tilt angle from true vertical:
-```
-θ = √(tiltX² + tiltY²)
-```
-
-### Gravity Auto-Zero Calibration
-
-The accelerometer reference is **hardcoded to the ideal vertical orientation** `(0, 0, +1g)`. This eliminates human calibration error entirely — the buoy is designed to float vertically by construction, so any measured tilt IS real displacement from vertical.
-
-Only gyroscope bias offsets are sampled at startup (1000 samples, outlier-rejected). The device must be stationary during gyro calibration but its physical orientation is irrelevant.
 
 ---
 
-## Flood Detection Engine
+### 🌊 Wave Filter — 2-Second Trimmed Mean
+
+```mermaid
+flowchart LR
+    A["100 Hz samples"] --> B["Buffer\n200 samples\n2 seconds"]
+    B --> C["Sort ascending"]
+    C --> D["Drop bottom 20\nwave troughs"]
+    C --> E["Drop top 20\nwave crests"]
+    D --> F["Average\nmiddle 160"]
+    E --> F
+    F --> G["✅ Stable\nwater height"]
+```
+
+> Every flood decision is made on this filtered value — never a raw reading.
+
+---
+
+### 🔄 Complementary Filter — 100 Hz Sensor Fusion
+
+```
+filtTiltX = 0.98 × (filtTiltX + gyroX × dt) + 0.02 × accelTiltX
+filtTiltY = 0.98 × (filtTiltY + gyroY × dt) + 0.02 × accelTiltY
+θ         = √(tiltX² + tiltY²)
+```
+
+| Parameter | Value |
+|---|---|
+| Alpha (α) | `0.98` — 98% gyro, 2% accel correction |
+| Fusion rate | `100 Hz` (10,000 µs interval) |
+| Gyro range | `±250 °/s` |
+| Accel range | `±2 g`, DLPF 44 Hz |
+
+---
+
+### 🎯 Gravity Auto-Zero Calibration
+
+```mermaid
+flowchart LR
+    A["⚡ Boot"] --> B["Gyro calibration\n1,000 samples\nDevice must be still\nOrientation irrelevant\nOutliers rejected"]
+    B --> D["Store gyro\noffsets X/Y/Z"]
+    A --> E["Accel ref\nHARDCODED\n0, 0, +1g\nNo user input"]
+    D --> F["✅ Done"]
+    E --> F
+```
+
+> The accelerometer reference is hardcoded to ideal vertical. No human calibration error possible.
+
+---
+
+## 🚦 Flood Detection Engine
 
 ### Operating Modes
 
-The flood state machine classifies the buoy into one of four modes, with persistence debouncing (10 consecutive readings required for mode transition, 3 for submersion):
+```mermaid
+stateDiagram-v2
+    [*] --> SLACK : Boot
 
-| Mode | Condition | Meaning |
+    SLACK --> TAUT : lateral_accel > 0.15\nAND tilt > 3°\n(10 consecutive readings)
+    TAUT --> FLOOD : flood_ratio > 0.95\n(10 readings)
+    TAUT --> SLACK : accel + tilt drop
+    FLOOD --> TAUT : ratio drops
+    FLOOD --> SUBMERGED : gauge_pressure > 500 Pa\n(3 readings)
+    TAUT --> SUBMERGED : gauge_pressure > 500 Pa
+    SUBMERGED --> TAUT : pressure drops
+
+    SLACK : 🔵 SLACK\nTether loose
+    TAUT : 🟢 TAUT\nReading water level
+    FLOOD : 🟠 FLOOD\nNear H_max
+    SUBMERGED : 🔴 SUBMERGED\nBuoy underwater
+```
+
+### Alert Levels
+
+| Alert | Mode | Flood Ratio |
 |---|---|---|
-| `MODE_SLACK` (0) | Low lateral accel, low tilt | Tether slack — water below buoy rest level |
-| `MODE_TAUT` (1) | Lateral accel > 0.15 m/s², tilt > 3° | Tether taut — buoy is floating and reading water level |
-| `MODE_FLOOD` (2) | TAUT + flood ratio > 0.95 | Water level near or at H_max |
-| `MODE_SUBMERGED` (3) | BMP280 gauge pressure > 500 Pa | Buoy fully submerged |
+| 🟢 GREEN | SLACK | any |
+| 🟡 YELLOW | TAUT | > 80% |
+| 🔴 RED | FLOOD | > 95% |
+| ⚫ BLACK | SUBMERGED | — |
 
-### Alert Levels and Zones
+### Zones & Response
 
-| Alert Level | Colour | Trigger |
+| Zone | Flood Ratio | Response |
 |---|---|---|
-| GREEN | 🟢 | SLACK mode |
-| YELLOW | 🟡 | TAUT + flood ratio > 80% |
-| RED | 🔴 | FLOOD mode |
-| BLACK | ⚫ | SUBMERGED |
+| 🟢 SAFE | < 50% | None |
+| 🔵 WATCH | 50 – 80% | Monitor |
+| 🟠 WARNING | 80 – 95% | Prepare |
+| 🔴 CRITICAL | > 95% or submerged | Act / Evacuate |
 
-| Zone | Flood Ratio | Response Level |
-|---|---|---|
-| SAFE | < 50% | None |
-| WATCH | 50–80% | Monitor |
-| WARNING | 80–95% | Prepare |
-| CRITICAL | > 95% or SUBMERGED | Act / Evacuate |
+### ⚡ Dynamic Push Rate
 
-### Dynamic Firebase Push Rate
-
-The S3 automatically adjusts how frequently it uploads to Firebase based on water level urgency:
-
-| Water Level (% of H_max) | Push Interval |
-|---|---|
-| < 50% | Every 2 minutes |
-| 50–80% | Every 1 minute |
-| > 80% | Every 2 seconds |
-| Real-time override (manual) | Every 2 seconds |
+```
+ 0% ──────────────── 50% ──────────────── 80% ──── 100%
+      Every 2 min         Every 1 min       Every 2s
+      (calm, save data)   (watch closely)   (urgent!)
+```
 
 ---
 
-## Cloud Integration — Firebase
+## ☁️ Firebase Cloud Integration
 
-Firebase project: `varuna-git-1e145` (Asia Southeast 1 region)
+**Project:** `varuna-git-1e145` · Asia Southeast 1
 
-Both the S3 (directly) and the C3 (via the bridge) write to the same Firebase Realtime Database. The dashboard reads from it.
+### Path Map
 
-### Data Paths
+```
+/devices/VARUNA_001/
+├── raw/latest        ← S3 overwrites on every push
+├── network           ← S3 writes IP + RSSI hourly
+├── console/
+│   ├── command       ← Dashboard writes command string
+│   └── response      ← S3 writes response
+└── commands/pending  ← C3 forwards config commands
+```
 
-| Path | Writer | Content |
-|---|---|---|
-| `devices/VARUNA_001/raw/latest` | S3 | Full JSON sensor payload (39+ fields) |
-| `devices/VARUNA_001/network` | S3 | IP address, WiFi RSSI, timestamp |
-| `devices/VARUNA_001/commands/pending` | Dashboard / C3 | Command string for S3 |
-| `devices/VARUNA_001/console/command` | Dashboard | Wireless console command |
-| `devices/VARUNA_001/console/response` | S3 | Command response from S3 |
-
-### Firebase Payload Fields (raw/latest)
+### Payload Sample (`raw/latest`)
 
 ```json
 {
-  "waterLevel": 142.5,
-  "rawAccX": -312, "rawAccY": 88, "rawAccZ": 16201,
-  "rawGyroX": 14, "rawGyroY": -6, "rawGyroZ": 3,
-  "rawMpuTemp": 2840,
-  "pressure": 1012.45,
-  "temperature": 28.3,
-  "latitude": 17.385044, "longitude": 78.486671,
-  "batteryPercent": 87.2,
-  "mpuAvailable": true, "bmpAvailable": true,
-  "rtcAvailable": true, "gpsAvailable": true,
-  "dateTime": "2026-03-25 14:32:10",
-  "uptimeMs": 3821493,
-  "wifiRSSI": -62
+  "waterLevel":     142.5,
+  "rawAccX":        -312,  "rawAccY": 88,   "rawAccZ": 16201,
+  "rawGyroX":        14,   "rawGyroY": -6,  "rawGyroZ": 3,
+  "pressure":       1012.45,
+  "temperature":      28.3,
+  "latitude":       17.385044,
+  "longitude":      78.486671,
+  "batteryPercent":  87.2,
+  "mpuAvailable":   true,  "bmpAvailable": true,
+  "rtcAvailable":   true,  "gpsAvailable": true,
+  "dateTime":       "2026-03-25 14:32:10",
+  "uptimeMs":       3821493,
+  "wifiRSSI":       -62
 }
 ```
 
-### Wireless Console
+### 📟 Wireless Console Flow
 
-The dashboard's **Remote Console** tab writes a command string to `console/command`. The S3 polls this path every 3 seconds, executes the command, clears the path (to prevent re-execution), and writes the response to `console/response`. The dashboard then reads and displays the response.
+```mermaid
+sequenceDiagram
+    participant D as 🖥️ Dashboard
+    participant F as 🔥 Firebase
+    participant S3 as 🧠 ESP32-S3
 
-This gives full remote access to all debug commands without any physical connection to the buoy.
+    D->>F: Write "GETSTATUS" → console/command
+    Note over S3: Polls every 3 seconds
+    S3->>F: Read console/command
+    S3->>F: Clear → null (prevents re-execution)
+    S3->>S3: Execute command locally
+    S3->>F: Write response → console/response
+    F->>D: Dashboard reads + displays response
+```
 
 ---
 
-## Web Dashboard
+## 🖥️ Web Dashboard
 
-`varuna_dashboard_v32.html` is a single-file, self-contained web application. It connects to Firebase Realtime Database and provides a complete operator interface.
+Single self-contained file — `varuna_dashboard_v32.html`. No backend required.
 
-### Panels
-
-| Panel | Description |
+| Panel | Contents |
 |---|---|
-| **Overview** | Live KPI tiles (water level, tilt, flood ratio, battery, GPS, mode), 5-KPI sparkline strip, system alert log |
-| **Live Data** | Full telemetry table of all fields from the Firebase payload, raw sensor values |
-| **Analytics** | Historical charts (water level, pressure, temperature, tilt, battery) with zoom/pan and time range selector (1h / 6h / 24h / all). Data persisted in localStorage (up to 1,440 records). Export as `.ods` spreadsheet |
-| **Map** | Live GPS marker on Leaflet map. Falls back to IP geolocation (ip-api.com) before a GPS fix is obtained |
-| **Alert Center** | Log of all system alerts with severity classification (Critical / Warning / Info) |
-| **Alerting** | EmailJS alert dispatch configuration and manual send |
-| **Settings** | H_max configuration (modal numeric input dialog), realtime mode toggle, push rate control |
-| **Remote Console** | Live command terminal — send any S3 debug command over Firebase and see the response |
-| **About / Landing** | Project overview and capability documentation |
+| 🏠 **Overview** | Live KPI tiles · sparkline strip · alert log |
+| 📊 **Live Data** | Full Firebase payload table |
+| 📈 **Analytics** | Charts (water, pressure, temp, tilt, battery) · zoom/pan · 1h/6h/24h/all · localStorage (1,440 records) · `.ods` export |
+| 🗺️ **Map** | GPS marker (Leaflet) · IP geolocation fallback pre-fix |
+| 🔔 **Alert Center** | Classified alert log (Critical / Warning / Info) |
+| 📧 **Alerting** | EmailJS auto-dispatch + manual send |
+| ⚙️ **Settings** | H_max · realtime toggle · push rate |
+| 💻 **Remote Console** | Firebase-backed live command terminal |
 
-### Alerting System
+### 📧 Auto Email Alerts
 
-Automated email alerts are dispatched via **EmailJS** (service ID: `service_57la4ol`) at two thresholds:
+| Threshold | Level |
+|---|---|
+| Water ≥ **80%** of H_max | 🟠 HIGH FLOOD ALERT — email dispatched |
+| Water ≥ **90%** of H_max | 🔴 EMERGENCY FLOOD — email dispatched |
 
-| Threshold | Level | Action |
-|---|---|---|
-| Water level ≥ 80% of H_max | HIGH FLOOD ALERT | Email dispatched automatically |
-| Water level ≥ 90% of H_max | EMERGENCY FLOOD | Email dispatched automatically |
+Each email contains: water level in metres · rise rate (cm/15 min) · GPS map link · zone · timestamp.
 
-Each alert email includes: water level in metres, rate of rise (cm/15 min), GPS/map link, flood zone classification, and timestamp. A configurable cooldown prevents repeated alerts during sustained flood conditions. Manual test sends are also available from the Alerting panel.
-
-### Analytics & Export
-
-The dashboard accumulates all incoming Firebase updates in `localStorage` (capped at 1,440 records, approximately 24 hours at 1-minute push rate). Charts are rendered with Chart.js and support zoom/pan via the chartjs-plugin-zoom. Data can be exported as an `.ods` spreadsheet for offline analysis.
+> EmailJS service: `service_57la4ol`. Configurable cooldown prevents alert spam.
 
 ---
 
-## C3 Bridge — SD Buffering & OTA
+## 💾 SD Buffering & OTA
 
-### Offline Buffering
+### Offline Buffer
 
-When the C3 loses WiFi/GPRS connectivity, incoming CSV lines from the S3 are written to `/buffer.csv` on the SD card (SPI, GPIO 4-7). Up to 10,000 lines are retained. When connectivity is restored, the C3 flushes the buffer in batches of 10 lines every 2 seconds to avoid overwhelming Firebase.
+```mermaid
+flowchart TD
+    A["S3 sends CSV row"] --> B{"Connected?"}
+    B -- Yes --> C["Push to Firebase"]
+    B -- No --> D["Write to SD\n/buffer.csv"]
+    D --> E["Hold up to\n10,000 rows"]
+    E --> F{"Connection\nrestored?"}
+    F -- Yes --> G["Flush 10 rows\nevery 2 seconds"]
+    G --> C
+```
 
-### OTA Firmware Update
+### OTA Update Flow
 
-The C3 can reprogram the S3 remotely. The process:
+```mermaid
+flowchart LR
+    A["Dashboard\nwrites OTA URL"] --> B["C3 downloads\nbinary → SD"]
+    B --> C["BOOT pin LOW\nGPIO 2"]
+    C --> D["Pulse RESET\nGPIO 3"]
+    D --> E["S3 ROM\nbootloader\n115,200 baud"]
+    E --> F["SLIP transfer\nfirmware"]
+    F --> G["Release BOOT\nPulse RESET"]
+    G --> H["S3 reboots\nnew firmware"]
+    H --> I["✅ Report\nto Firebase"]
+```
 
-1. Dashboard writes an OTA command with firmware URL to Firebase
-2. C3 downloads the firmware binary from Firebase Storage to the SD card
-3. C3 asserts S3 BOOT pin (GPIO 2) LOW and pulses S3 RESET pin (GPIO 3)
-4. S3 enters ROM bootloader mode at 115,200 baud
-5. C3 transfers the firmware using the ESP32 SLIP bootloader protocol
-6. C3 releases BOOT pin, pulses RESET — S3 reboots into new firmware
-7. C3 verifies the S3 is alive and reports OTA result to Firebase
-
-The `$CFG` wire (S3 GPIO 44 → C3's existing TX line) is reused as the SLIP bootloader channel, eliminating any extra wiring.
-
----
-
-## Calibration Procedure
-
-On every boot, the S3 runs an automatic calibration sequence:
-
-1. **Gyro offset calibration** — 1,000 samples collected with the device stationary. Outliers (> 20 °/s) are rejected. Resulting offsets are applied to all subsequent gyro readings. Physical orientation during this step is irrelevant.
-
-2. **Pressure baseline calibration** — 50 BMP280 pressure samples are averaged to establish the local atmospheric baseline. All subsequent pressure readings are compared against this to detect submersion.
-
-3. **H_max load** — The tether length / maximum water height is loaded from NVS. If no value has been saved, it defaults to 200 cm. This value survives power cycles and can be updated from the dashboard or serial console.
-
-To force recalibration at runtime: send `RECALIBRATE` via the serial console or remote wireless console.
+> The `$CFG` wire (S3 GPIO 44) doubles as the SLIP channel — no extra wiring needed.
 
 ---
 
-## Serial Console Commands (S3)
+## 🎛️ Calibration
 
-Connect to the S3 via USB Serial at 115,200 baud.
+```mermaid
+flowchart LR
+    A["⚡ Boot"] --> B["1️⃣ Gyro Cal\n1,000 samples\nDevice stationary\nStores X/Y/Z offsets"]
+    B --> C["2️⃣ Pressure Baseline\n50 BMP280 samples\nLocal atmospheric ref"]
+    C --> D["3️⃣ H_max\nLoad from NVS\nDefault: 200 cm"]
+    D --> E["✅ Ready"]
+```
+
+To recalibrate at any time: send `RECALIBRATE` via serial or Remote Console.
+
+---
+
+## 💻 Serial Commands (115,200 baud)
+
+### Status
 
 | Command | Description |
 |---|---|
-| `START` | Begin CSV streaming to serial |
-| `STOP` | Stop CSV streaming |
-| `PING` | Health check — returns uptime, heap, IP, RSSI |
-| `GETSTATUS` | Full flood state, sensor values, push stats |
-| `GETCONFIG` | Configuration parameters, calibration state |
-| `GETRAW` | Raw IMU/BMP/GPS values |
-| `GETTHRESH` | Current flood threshold values |
+| `PING` | Uptime · heap · IP · RSSI |
+| `GETSTATUS` | Full flood state + sensor snapshot |
+| `GETCONFIG` | All config + calibration state |
+| `GETRAW` | Raw IMU / BMP / GPS values |
+| `GETTHRESH` | Current threshold values |
+
+### Control
+
+| Command | Description |
+|---|---|
 | `RECALIBRATE` | Re-run gyro + pressure calibration |
 | `NTPRESYNC` | Force NTP time sync |
 | `DIAGRUN` | Run full hardware diagnostic |
-| `REALTIME ON` | Force 2-second push rate |
-| `REALTIME OFF` | Restore dynamic push rate |
-| `ALGO_ON` / `ALGO_OFF` | Enable/disable advanced flood detection |
+| `REALTIME ON` / `OFF` | Force / restore dynamic push rate |
+| `ALGO_ON` / `ALGO_OFF` | Enable / disable advanced detection |
 | `FORCEUPLOAD` | Immediate Firebase push |
-| `SETHMAX=<cm>` | Set tether length (saved to NVS) |
-| `SETTHRESH=<a>,<w>,<d>` | Set lateral accel, flood theta, submersion Pa |
-| `RESETTHRESH` | Reset all thresholds to firmware defaults |
-| `SETRATE=<norm_s>,<high_s>` | Set normal and high push rates in seconds |
+| `START` / `STOP` | CSV streaming to serial |
 
-All commands are also available remotely via the dashboard's **Remote Console** panel over Firebase.
+### Configuration
+
+| Command | Description |
+|---|---|
+| `SETHMAX=<cm>` | Set tether length (saved to NVS) |
+| `SETTHRESH=<accel>,<theta_deg>,<Pa>` | Set flood thresholds |
+| `RESETTHRESH` | Restore firmware defaults |
+| `SETRATE=<norm_s>,<high_s>` | Set normal / high push intervals |
+
+> All commands work over the dashboard **Remote Console** — no USB needed.
 
 ---
 
-## Diagnostics
+## 🔬 Diagnostics
 
-The S3 runs a full hardware diagnostic every 24 hours, or on demand (`DIAGRUN`). Each test produces a PASS/FAIL result and a cumulative health score (0–100%).
+Runs every **24 hours**, or on demand (`DIAGRUN`).
 
 | Test | Pass Condition |
 |---|---|
-| MPU WHO_AM_I | Register reads 0x68 |
-| Accel magnitude | 0.8 g – 1.2 g (gravity sanity check) |
-| Gyro drift | < 5 °/s at rest |
-| BMP Chip ID | Register reads 0x58 |
-| BMP Pressure | 300 – 1200 hPa |
-| BMP Temperature | -40 – 85 °C |
-| NTP sync | Time successfully synced |
-| GPS data age | Last NMEA sentence < 10 seconds ago |
-| Battery voltage | 2.8 – 4.3 V |
-| C3 PONG | C3 responds to `$PING` within 2 seconds |
+| 🔵 MPU WHO_AM_I | Register = `0x68` |
+| 🔵 Accel magnitude | `0.8 g – 1.2 g` |
+| 🔵 Gyro drift | `< 5 °/s` at rest |
+| 🟢 BMP Chip ID | Register = `0x58` |
+| 🟢 BMP Pressure | `300 – 1,200 hPa` |
+| 🟢 BMP Temperature | `-40 – 85 °C` |
+| 🕐 NTP Sync | Time successfully synced |
+| 🛰️ GPS Data Age | Last NMEA sentence `< 10 s` ago |
+| 🔋 Battery Voltage | `2.8 – 4.3 V` |
+| 📡 C3 PONG | Response within `2 s` |
 
-Diagnostic results are printed to the serial console, forwarded to the C3 via the `$DIAG,...` frame, and pushed to Firebase for dashboard visibility.
+Health score (0–100%) = MPU 40% + BMP 30% + NTP 20% + GPS 10%.
+
+Results are printed to serial, forwarded to C3 via `$DIAG,...`, and pushed to Firebase.
 
 ---
 
-## Pin Reference
+## 📌 Pin Reference
 
 ### ESP32-S3
 
-| GPIO | Function |
-|---|---|
-| 2 | Battery ADC (½ voltage divider) |
-| 4, 5 | I2C Bus 1 SDA/SCL — BMP280 |
-| 6, 7 | UART1 RX/TX — GPS |
-| 8, 9 | I2C Bus 0 SDA/SCL — MPU6050 |
-| 14 | SW-UART TX → C3 GPIO 10 (CSV data) |
-| 43, 44 | UART2 TX/RX ↔ C3 GPIO 20/21 (commands) |
+| GPIO | Role | Dir |
+|---|---|---|
+| `2` | Battery ADC (½ divider) | IN |
+| `4` / `5` | I²C Bus 1 SDA/SCL — BMP280 | I/O |
+| `6` / `7` | UART1 RX/TX — GPS | IN/OUT |
+| `8` / `9` | I²C Bus 0 SDA/SCL — MPU6050 | I/O |
+| `14` | SW-UART TX → C3 GPIO 10 | OUT |
+| `43` / `44` | UART2 TX/RX ↔ C3 GPIO 20/21 | OUT/IN |
 
 ### XIAO ESP32-C3
 
-| GPIO | Function |
-|---|---|
-| 2 | S3 BOOT pin (OTA programming) |
-| 3 | S3 RESET/EN pin (OTA programming) |
-| 4, 5, 6, 7 | SD Card SPI (CS, SCK, MOSI, MISO) |
-| 10 | SW-UART RX ← S3 GPIO 14 (CSV data) |
-| 20, 21 | UART RX/TX ↔ S3 GPIO 43/44 (commands) |
+| GPIO | Role | Dir |
+|---|---|---|
+| `2` | S3 BOOT (OTA) | OUT |
+| `3` | S3 RESET/EN (OTA) | OUT |
+| `4` `5` `6` `7` | SD Card SPI CS/SCK/MOSI/MISO | I/O |
+| `10` | SW-UART RX ← S3 GPIO 14 | IN |
+| `20` / `21` | UART RX/TX ↔ S3 GPIO 43/44 | IN/OUT |
 
 ---
 
-## Firmware Overview
+## 📁 File Reference
 
-| File | Target | Version | Description |
-|---|---|---|---|
-| `sketch_mar25b_UPDATED.ino` | ESP32-S3 | v3.2 | Sensor brain — fusion, flood detection, Firebase |
-| `c3_git_fb_web_ino.ino` | XIAO ESP32-C3 | v2.0 | Communication bridge — SD, OTA, SIM800L |
-| `varuna_dashboard_v32.html` | Browser | v32 | Single-file web dashboard |
-
-### Key Libraries (S3)
-- `Wire.h` — dual I2C buses
-- `WiFi.h`, `HTTPClient.h`, `WiFiClientSecure.h` — Firebase REST
-- `Preferences.h` — NVS storage
-- `time.h` — NTP / software RTC
-
-### Key Libraries (C3)
-- `WiFi.h`, `HTTPClient.h`, `WiFiClientSecure.h` — Firebase REST
-- `SD.h`, `SPI.h` — SD card buffering
+| File | Target | Version |
+|---|---|---|
+| `sketch_mar25b_UPDATED.ino` | ESP32-S3 | v3.2 |
+| `c3_git_fb_web_ino.ino` | XIAO ESP32-C3 | v2.0 |
+| `varuna_dashboard_v32.html` | Browser | v32 |
 
 ---
 
-## Project Goals & Context
-
-VARUNA is designed as the proof-of-concept node for **Project Saraswati** — a nationally scalable flood monitoring network intended to fill the coverage gaps in India's existing hydrological infrastructure (CWC gauges, IMD weather stations). Each node operates independently, classifies flood risk entirely on-device, and can deliver alerts even without cloud connectivity. The architecture is designed to scale from a 50-node district pilot to a 5,000-node national grid with a single unified command dashboard for district, state, and national authorities.
-
-The buoy platform targets installation in rivers, canals, and urban flood-prone zones across India's 20 most flood-vulnerable districts, providing real-time early warning to village panchayats, BDOs, tehsildars, SDMA control rooms, and NDRF liaisons.
-
----
-
-*VARUNA — Built in Hyderabad · [github.com/jden-art/Varuna-autoBackup](https://github.com/jden-art/Varuna-autoBackup)*
+*🌊 VARUNA · Built in Hyderabad, India · [github.com/jden-art/Varuna-autoBackup](https://github.com/jden-art/Varuna-autoBackup)*
