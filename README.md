@@ -1,11 +1,25 @@
+<div align="center">
+
 # 🌊 VARUNA — Autonomous Flood Monitoring Buoy
 
+### Tethered Autonomous Flood-Monitoring Buoy
 
-[![Status](https://img.shields.io/badge/status-active-22c55e?style=flat-square)](.) [![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%2B%20C3-3b82f6?style=flat-square)](.) [![Cloud](https://img.shields.io/badge/cloud-Firebase%20RTDB-f59e0b?style=flat-square)](.) [![Version](https://img.shields.io/badge/firmware-v3.2%20%2F%20v2.0-64748b?style=flat-square)](.)
+[![Status](https://img.shields.io/badge/status-active-22c55e?style=flat-square&logo=statuspage&logoColor=white)](.)
+[![Platform](https://img.shields.io/badge/ESP32--S3%20%2B%20C3-3b82f6?style=flat-square&logo=espressif&logoColor=white)](.)
+[![Cloud](https://img.shields.io/badge/Firebase%20RTDB-f59e0b?style=flat-square&logo=firebase&logoColor=white)](.)
+[![Version](https://img.shields.io/badge/firmware-v3.2%20%2F%20v2.0-64748b?style=flat-square&logo=git&logoColor=white)](.)
 
-VARUNA is a **tethered, autonomous flood-monitoring buoy** for real-world deployment in rivers, canals, and urban drainage systems. It senses, classifies, and reports water levels continuously — pushing live telemetry to Firebase and triggering email alerts when flood thresholds are crossed.
+**VARUNA** is a **tethered, autonomous flood-monitoring buoy** for real-world deployment in rivers, canals, and urban drainage systems. It senses, classifies, and reports water levels continuously — pushing live telemetry to Firebase and triggering email alerts when flood thresholds are crossed.
 
-[![Watch the demo](https://img.youtube.com/vi/_P6k8nGx6x4/maxresdefault.jpg)](https://youtu.be/_P6k8nGx6x4)
+---
+
+### 🎬 Click below to watch the demo
+
+[![Watch the VARUNA Demo on YouTube](https://img.youtube.com/vi/_P6k8nGx6x4/maxresdefault.jpg)](https://youtu.be/_P6k8nGx6x4)
+
+> ▶️ **[Watch on YouTube →](https://youtu.be/_P6k8nGx6x4)**
+
+</div>
 
 ---
 
