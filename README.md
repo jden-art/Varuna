@@ -1,6 +1,5 @@
 # 🌊 VARUNA — Autonomous Flood Monitoring Buoy
 
-> **V**ertical **A**nchor **R**eal-time **U**nderwater & **N**atural-hazard **A**ssessment
 
 [![Status](https://img.shields.io/badge/status-active-22c55e?style=flat-square)](.) [![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%2B%20C3-3b82f6?style=flat-square)](.) [![Cloud](https://img.shields.io/badge/cloud-Firebase%20RTDB-f59e0b?style=flat-square)](.) [![Version](https://img.shields.io/badge/firmware-v3.2%20%2F%20v2.0-64748b?style=flat-square)](.)
 
