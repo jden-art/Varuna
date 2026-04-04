@@ -19,6 +19,7 @@
 [![Watch the VARUNA Demo](https://img.youtube.com/vi/_P6k8nGx6x4/maxresdefault.jpg)](https://youtu.be/_P6k8nGx6x4)
 
 </div>
+
 ---
 
 ## 📑 Table of Contents
@@ -44,9 +45,9 @@
 
 ```mermaid
 flowchart TD
-    A[🔬 Sensors] --> B[🧠 ESP32-S3\nFlood Brain]
-    B --> C[📡 ESP32-C3\nComms Bridge]
-    B <--> D[📶 SIM800L GSM\nGPRS + SMS Alerts]
+    A[🔬 Sensors] --> B[🧠 ESP32-S3 Flood Brain]
+    B --> C[📡 ESP32-C3 Comms Bridge]
+    B <--> D[📶 SIM800L GSM GPRS + SMS Alerts]
     C --> E[(🔥 Firebase RTDB)]
     E --> F[📊 Dashboard]
 ```
@@ -69,22 +70,22 @@ Three layers, one purpose: **detect flooding early and report it reliably.**
 flowchart TD
     subgraph BUOY["🔵 VARUNA Buoy"]
         subgraph S3["ESP32-S3 · Sensor Brain v3.2"]
-            MPU["📐 MPU6050\nIMU · 100 Hz fusion"]
-            BMP["🌡️ BMP280\nPressure + Temp"]
-            GPS["🛰️ GPS Module\nNMEA GGA/RMC"]
-            BAT["🔋 Battery ADC\n16-sample avg"]
-            FUSION["⚙️ Complementary Filter\nα = 0.98 · 100 Hz"]
-            WAVE["🌊 Wave Filter\n200 samples · 2s window\n10% trimmed mean"]
-            FSM["🚦 Flood FSM\n4 modes · persistence debounce"]
-            FB_S3["☁️ Firebase Push\nDynamic rate: 2s – 2min"]
-            WCMD["📟 Wireless Console\nPoll every 3s"]
+            MPU["📐 MPU6050 IMU · 100 Hz fusion"]
+            BMP["🌡️ BMP280 Pressure + Temp"]
+            GPS["🛰️ GPS Module NMEA GGA/RMC"]
+            BAT["🔋 Battery ADC 16-sample avg"]
+            FUSION["⚙️ Complementary Filter α = 0.98 · 100 Hz"]
+            WAVE["🌊 Wave Filter 200 samples · 2s window 10% trimmed mean"]
+            FSM["🚦 Flood FSM 4 modes · persistence debounce"]
+            FB_S3["☁️ Firebase Push Dynamic rate: 2s – 2min"]
+            WCMD["📟 Wireless Console Poll every 3s"]
         end
 
         subgraph C3["XIAO ESP32-C3 · Comms Bridge v2.0"]
-            SIM["📶 SIM800L\nGSM/GPRS + SMS"]
-            SD["💾 SD Card\nOffline buffer ≤10k rows"]
-            OTA["🔧 OTA Programmer\nSLIP bootloader"]
-            FB_C3["☁️ Firebase Bridge\nCSV → JSON push"]
+            SIM["📶 SIM800L GSM/GPRS + SMS"]
+            SD["💾 SD Card Offline buffer ≤10k rows"]
+            OTA["🔧 OTA Programmer SLIP bootloader"]
+            FB_C3["☁️ Firebase Bridge CSV → JSON push"]
         end
 
         MPU --> FUSION
@@ -96,19 +97,19 @@ flowchart TD
         FSM --> FB_S3
         FSM --> WCMD
 
-        S3 -- "GPIO 14\nSW-UART 9600\nCSV data" --> C3
-        S3 -- "GPIO 43/44\nHW-UART 9600\nCommands" --> C3
-        C3 -- "Commands\n$CFG $PING $DIAG" --> S3
+        S3 -- "GPIO 14 SW-UART 9600 CSV data" --> C3
+        S3 -- "GPIO 43/44 HW-UART 9600 Commands" --> C3
+        C3 -- "Commands $CFG $PING $DIAG" --> S3
 
         SIM --> FB_C3
         SD --> FB_C3
     end
 
-    FB_S3 --> RTDB[("🔥 Firebase RTDB\nvaruna-git-1e145")]
+    FB_S3 --> RTDB[("🔥 Firebase RTDB varuna-git-1e145")]
     FB_C3 --> RTDB
-    RTDB --> DASH["🖥️ Web Dashboard v32\nLive · Map · Alerts · Console"]
-    DASH -- "Remote commands\nconsole/command" --> RTDB
-    RTDB -- "Poll\nconsole/response" --> WCMD
+    RTDB --> DASH["🖥️ Web Dashboard v32 Live · Map · Alerts · Console"]
+    DASH -- "Remote commands console/command" --> RTDB
+    RTDB -- "Poll console/response" --> WCMD
 ```
 
 ---
@@ -226,13 +227,13 @@ H        = L + depth_cm
 
 ```mermaid
 flowchart LR
-    A["100 Hz samples"] --> B["Buffer\n200 samples\n2 seconds"]
+    A["100 Hz samples"] --> B["Buffer 200 samples 2 seconds"]
     B --> C["Sort ascending"]
-    C --> D["Drop bottom 20\nwave troughs"]
-    C --> E["Drop top 20\nwave crests"]
-    D --> F["Average\nmiddle 160"]
+    C --> D["Drop bottom 20 wave troughs"]
+    C --> E["Drop top 20 wave crests"]
+    D --> F["Average middle 160"]
     E --> F
-    F --> G["✅ Stable\nwater height"]
+    F --> G["✅ Stable water height"]
 ```
 
 > Every flood decision is made on this filtered value — never a raw reading.
@@ -260,9 +261,9 @@ filtTiltY = 0.98 × (filtTiltY + gyroY × dt) + 0.02 × accelTiltY
 
 ```mermaid
 flowchart LR
-    A["⚡ Boot"] --> B["Gyro calibration\n1,000 samples\nDevice must be still\nOrientation irrelevant\nOutliers rejected"]
-    B --> D["Store gyro\noffsets X/Y/Z"]
-    A --> E["Accel ref\nHARDCODED\n0, 0, +1g\nNo user input"]
+    A["⚡ Boot"] --> B["Gyro calibration 1,000 samples Device must be still Orientation irrelevant Outliers rejected"]
+    B --> D["Store gyro offsets X/Y/Z"]
+    A --> E["Accel ref HARDCODED 0, 0, +1g No user input"]
     D --> F["✅ Done"]
     E --> F
 ```
@@ -279,18 +280,18 @@ flowchart LR
 stateDiagram-v2
     [*] --> SLACK : Boot
 
-    SLACK --> TAUT : lateral_accel > 0.15\nAND tilt > 3°\n(10 consecutive readings)
-    TAUT --> FLOOD : flood_ratio > 0.95\n(10 readings)
+    SLACK --> TAUT : lateral_accel > 0.15 AND tilt > 3° (10 consecutive readings)
+    TAUT --> FLOOD : flood_ratio > 0.95 (10 readings)
     TAUT --> SLACK : accel + tilt drop
     FLOOD --> TAUT : ratio drops
-    FLOOD --> SUBMERGED : gauge_pressure > 500 Pa\n(3 readings)
+    FLOOD --> SUBMERGED : gauge_pressure > 500 Pa (3 readings)
     TAUT --> SUBMERGED : gauge_pressure > 500 Pa
     SUBMERGED --> TAUT : pressure drops
 
-    SLACK : 🔵 SLACK\nTether loose
-    TAUT : 🟢 TAUT\nReading water level
-    FLOOD : 🟠 FLOOD\nNear H_max
-    SUBMERGED : 🔴 SUBMERGED\nBuoy underwater
+    SLACK : 🔵 SLACK Tether loose
+    TAUT : 🟢 TAUT Reading water level
+    FLOOD : 🟠 FLOOD Near H_max
+    SUBMERGED : 🔴 SUBMERGED Buoy underwater
 ```
 
 ### Alert Levels
@@ -412,10 +413,10 @@ Each email contains: water level in metres · rise rate (cm/15 min) · GPS map l
 flowchart TD
     A["S3 sends CSV row"] --> B{"Connected?"}
     B -- Yes --> C["Push to Firebase"]
-    B -- No --> D["Write to SD\n/buffer.csv"]
-    D --> E["Hold up to\n10,000 rows"]
-    E --> F{"Connection\nrestored?"}
-    F -- Yes --> G["Flush 10 rows\nevery 2 seconds"]
+    B -- No --> D["Write to SD /buffer.csv"]
+    D --> E["Hold up to 10,000 rows"]
+    E --> F{"Connection restored?"}
+    F -- Yes --> G["Flush 10 rows every 2 seconds"]
     G --> C
 ```
 
@@ -423,14 +424,14 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A["Dashboard\nwrites OTA URL"] --> B["C3 downloads\nbinary → SD"]
-    B --> C["BOOT pin LOW\nGPIO 2"]
-    C --> D["Pulse RESET\nGPIO 3"]
-    D --> E["S3 ROM\nbootloader\n115,200 baud"]
-    E --> F["SLIP transfer\nfirmware"]
-    F --> G["Release BOOT\nPulse RESET"]
-    G --> H["S3 reboots\nnew firmware"]
-    H --> I["✅ Report\nto Firebase"]
+    A["Dashboard writes OTA URL"] --> B["C3 downloads binary → SD"]
+    B --> C["BOOT pin LOW GPIO 2"]
+    C --> D["Pulse RESET GPIO 3"]
+    D --> E["S3 ROM bootloader 115,200 baud"]
+    E --> F["SLIP transfer firmware"]
+    F --> G["Release BOOT Pulse RESET"]
+    G --> H["S3 reboots new firmware"]
+    H --> I["✅ Report to Firebase"]
 ```
 
 > The `$CFG` wire (S3 GPIO 44) doubles as the SLIP channel — no extra wiring needed.
@@ -441,9 +442,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["⚡ Boot"] --> B["1️⃣ Gyro Cal\n1,000 samples\nDevice stationary\nStores X/Y/Z offsets"]
-    B --> C["2️⃣ Pressure Baseline\n50 BMP280 samples\nLocal atmospheric ref"]
-    C --> D["3️⃣ H_max\nLoad from NVS\nDefault: 200 cm"]
+    A["⚡ Boot"] --> B["1️⃣ Gyro Cal 1,000 samples Device stationary Stores X/Y/Z offsets"]
+    B --> C["2️⃣ Pressure Baseline 50 BMP280 samples Local atmospheric ref"]
+    C --> D["3️⃣ H_max Load from NVS Default: 200 cm"]
     D --> E["✅ Ready"]
 ```
 
